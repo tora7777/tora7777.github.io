@@ -1,1 +1,1530 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日本工学院蒲田校 面接ブース予約システム v2.0</title>
+    <style>
+        /* ============================================
+           基本スタイル定義
+           ============================================ */
+        :root {
+            /* カラーテーマ変数 */
+            --primary-color: #3498db;
+            --secondary-color: #2c3e50;
+            --success-color: #27ae60;
+            --danger-color: #e74c3c;
+            --warning-color: #f39c12;
+            --info-color: #3498db;
+            --light-bg: #f0f2f5;
+            --white: #ffffff;
+            --text-primary: #333333;
+            --text-secondary: #6c757d;
+            --border-color: #dee2e6;
+            
+            /* レイアウト変数 */
+            --header-height: 60px;
+            --container-width: 1200px;
+            --card-padding: 2rem;
+            --border-radius: 8px;
+            
+            /* アニメーション */
+            --transition-speed: 0.3s;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Hiragino Sans', 'Yu Gothic UI', Meiryo, sans-serif;
+            background: var(--light-bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        /* ============================================
+           ユーティリティクラス
+           ============================================ */
+        .container {
+            max-width: var(--container-width);
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid var(--light-bg);
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* ============================================
+           ヘッダーコンポーネント
+           ============================================ */
+        .header {
+            background: var(--secondary-color);
+            color: var(--white);
+            height: var(--header-height);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: var(--container-width);
+            margin: 0 auto;
+            padding: 0 20px;
+            height: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--primary-color);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        /* ============================================
+           カードコンポーネント
+           ============================================ */
+        .card {
+            background: var(--white);
+            border-radius: var(--border-radius);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: var(--card-padding);
+            margin-bottom: 2rem;
+            transition: transform var(--transition-speed), box-shadow var(--transition-speed);
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .card-header {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: var(--secondary-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* ============================================
+           メインコンテンツエリア
+           ============================================ */
+        .main-content {
+            margin-top: calc(var(--header-height) + 20px);
+            min-height: calc(100vh - var(--header-height) - 40px);
+        }
+
+        /* ============================================
+           時間選択グリッド
+           ============================================ */
+        .time-slot-container {
+            position: relative;
+        }
+
+        .time-slots {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            background: #fafafa;
+        }
+
+        .time-slot {
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            text-align: center;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            font-size: 0.875rem;
+            background: var(--white);
+        }
+
+        .time-slot:hover:not(.unavailable) {
+            border-color: var(--primary-color);
+            background: #f0f8ff;
+        }
+
+        .time-slot.selected {
+            background: var(--primary-color);
+            color: var(--white);
+            border-color: var(--primary-color);
+            font-weight: bold;
+        }
+
+        .time-slot.unavailable {
+            background: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+            text-decoration: line-through;
+        }
+
+        /* ============================================
+           フォーム要素
+           ============================================ */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 1rem;
+            transition: border-color var(--transition-speed);
+            background: var(--white);
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        /* ============================================
+           ボタンスタイル
+           ============================================ */
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            text-decoration: none;
+            text-align: center;
+            font-weight: 500;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn:active::after {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: var(--white);
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        /* ============================================
+           アラートシステム
+           ============================================ */
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            position: relative;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        /* ============================================
+           モーダルウィンドウ
+           ============================================ */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background-color: var(--white);
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            animation: slideDown 0.3s ease-out;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* ============================================
+           ページ固有スタイル
+           ============================================ */
+        .page {
+            display: none;
+            animation: pageTransition 0.3s ease-out;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        @keyframes pageTransition {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ============================================
+           統計ダッシュボード
+           ============================================ */
+        .admin-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--white);
+            padding: 1.5rem;
+            border-radius: var(--border-radius);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin: 0.5rem 0;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* ============================================
+           自動割り当て情報表示
+           ============================================ */
+        .auto-assign-info {
+            background: #e8f4fd;
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .auto-assign-info ul {
+            padding-left: 1.5rem;
+            margin: 0.5rem 0;
+        }
+
+        .auto-assign-info li {
+            margin-bottom: 0.3rem;
+        }
+
+        /* ============================================
+           レスポンシブデザイン
+           ============================================ */
+        @media (max-width: 768px) {
+            .header-content {
+                padding: 0 10px;
+            }
+
+            .logo {
+                font-size: 1.2rem;
+            }
+
+            .time-slots {
+                grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+                max-height: 200px;
+            }
+
+            .modal-content {
+                margin: 10% auto;
+                padding: 1.5rem;
+            }
+
+            .admin-stats {
+                grid-template-columns: 1fr;
+            }
+            
+            .stat-card {
+                padding: 1rem;
+            }
+        }
+
+        /* ============================================
+           アクセシビリティ向上
+           ============================================ */
+        :focus-visible {
+            outline: 3px solid var(--primary-color);
+            outline-offset: 2px;
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        /* ============================================
+           印刷スタイル
+           ============================================ */
+        @media print {
+            .header, .btn, .modal {
+                display: none !important;
+            }
+
+            .main-content {
+                margin-top: 0;
+            }
+
+            .card {
+                box-shadow: none;
+                border: 1px solid #000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- ============================================
+         メインアプリケーション構造
+         ============================================ -->
+    
+    <!-- ヘッダーナビゲーション -->
+    <header class="header hidden" id="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">🏢</div>
+                <span>面接ブース予約システム</span>
+            </div>
+            <nav>
+                <ul class="nav-menu" style="list-style: none; display: flex; gap: 20px;">
+                    <li><a href="#" onclick="NavigationController.navigateTo('reservation')" class="nav-link" style="color: white; text-decoration: none;">予約</a></li>
+                    <li><a href="#" onclick="NavigationController.navigateTo('management')" class="nav-link" style="color: white; text-decoration: none;">予約管理</a></li>
+                    <li class="hidden" id="adminLink"><a href="#" onclick="NavigationController.navigateTo('admin')" class="nav-link" style="color: white; text-decoration: none;">管理者</a></li>
+                </ul>
+            </nav>
+            <div class="user-info" style="display: flex; align-items: center; gap: 10px; color: white;">
+                <span id="userEmail"></span>
+                <button class="btn btn-secondary" onclick="AuthController.logout()" style="background: #95a5a6; color: white;">ログアウト</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+        
+        <!-- ============================================
+             ログインページ
+             ============================================ -->
+        <div class="page active" id="loginPage">
+            <div class="container" style="max-width: 400px; margin-top: 100px;">
+                <div class="card">
+                    <div style="text-align: center; margin-bottom: 2rem;">
+                        <h1 style="color: var(--secondary-color); font-size: 2rem;">面接ブース予約システム</h1>
+                        <p style="color: var(--text-secondary);">日本工学院蒲田校 学生専用</p>
+                    </div>
+                    
+                    <!-- ログインフォーム -->
+                    <div id="loginForm">
+                        <form onsubmit="AuthController.handleLogin(event)">
+                            <div class="form-group">
+                                <label for="email">メールアドレス</label>
+                                <input type="email" id="email" placeholder="k000a0000@g.neec.ac.jp" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="password">パスワード</label>
+                                <input type="password" id="password" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="width: 100%">ログイン</button>
+                        </form>
+                        <div style="text-align: center; margin-top: 1rem;">
+                            <a href="#" onclick="AuthController.showRegisterForm()" style="color: var(--primary-color);">初回利用の方はこちら</a>
+                        </div>
+                    </div>
+
+                    <!-- 新規登録フォーム -->
+                    <div id="registerForm" class="hidden">
+                        <form onsubmit="AuthController.handleRegister(event)">
+                            <div class="form-group">
+                                <label for="regEmail">学校メールアドレス</label>
+                                <input type="email" id="regEmail" placeholder="k000a0000@g.neec.ac.jp" 
+                                       pattern="k[0-9]{3}[a-z][0-9]{4}@g\.neec\.ac\.jp" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="regPassword">パスワード</label>
+                                <input type="password" id="regPassword" minlength="8" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="regPasswordConfirm">パスワード（確認）</label>
+                                <input type="password" id="regPasswordConfirm" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="width: 100%">登録</button>
+                        </form>
+                        <div style="text-align: center; margin-top: 1rem;">
+                            <a href="#" onclick="AuthController.showLoginForm()" style="color: var(--primary-color);">ログインに戻る</a>
+                        </div>
+                    </div>
+
+                    <!-- メール認証シミュレーション用 -->
+                    <div id="verificationMessage" class="hidden" style="margin-top: 1.5rem; text-align: center;">
+                        <div class="alert alert-info">認証メールを送信しました。</div>
+                        <p>デモのため、以下のボタンで認証を完了できます。</p>
+                        <button class="btn btn-success" id="verifyButton" style="background-color: var(--success-color);">今すぐ認証する</button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             予約ページ
+             ============================================ -->
+        <div class="page" id="reservationPage">
+            <div class="container">
+                <div class="card">
+                    <h2 class="card-header">
+                        <span>📅</span>
+                        新規予約
+                    </h2>
+                    
+                    <div class="auto-assign-info">
+                        <p><strong>ブース自動割り当てシステムについて</strong></p>
+                        <p>システムが以下の優先順位で自動的にブースを割り当てます：</p>
+                        <ul>
+                            <li>1. 所属カレッジの専用ブース</li>
+                            <li>2. 共通利用ブース（6,7番）</li>
+                            <li>3. 使用率の低い他カレッジブース</li>
+                        </ul>
+                        <p>※他カレッジのブースを利用する場合は、該当カレッジの担当者に通知が送信されます</p>
+                    </div>
+                    
+                    <form onsubmit="ReservationController.handleReservation(event)">
+                        <!-- 日付選択 -->
+                        <div class="form-group">
+                            <label for="reservationDate">予約日</label>
+                            <input type="date" id="reservationDate" required onchange="ReservationController.updateAvailability()">
+                        </div>
+
+                        <!-- 時間選択 -->
+                        <div class="form-group">
+                            <label>開始時間</label>
+                            <div class="time-slot-container">
+                                <div class="time-slots" id="timeSlots">
+                                    <!-- 動的生成 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 利用時間 -->
+                        <div class="form-group">
+                            <label for="duration">利用時間</label>
+                            <select id="duration">
+                                <option value="30">30分</option>
+                                <option value="60" selected>60分（標準）</option>
+                                <option value="90">90分</option>
+                                <option value="120">120分</option>
+                            </select>
+                        </div>
+
+                        <!-- 利用目的 -->
+                        <div class="form-group">
+                            <label for="purpose">利用目的・備考</label>
+                            <textarea id="purpose" rows="3" placeholder="面接の種類、企業名など"></textarea>
+                        </div>
+
+                        <!-- リマインダー -->
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 10px;">
+                                <input type="checkbox" id="reminder" style="width: auto;"> 
+                                予約1時間前にリマインドメールを送信する
+                            </label>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">予約確定</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             予約管理ページ
+             ============================================ -->
+        <div class="page" id="managementPage">
+            <div class="container">
+                <div class="card">
+                    <h2 class="card-header">
+                        <span>📋</span>
+                        予約管理
+                    </h2>
+                    <div id="userReservations">
+                        <!-- 動的生成 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================
+             管理者ページ
+             ============================================ -->
+        <div class="page" id="adminPage">
+            <div class="container">
+                <div class="card">
+                    <h2 class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span>⚙️</span>
+                            管理者ダッシュボード
+                        </div>
+                         <button class="btn btn-primary" onclick="AdminControllerInstance.openAddModal()">新規予約作成</button>
+                    </h2>
+                    
+                    <!-- 統計情報 -->
+                    <div class="admin-stats">
+                        <div class="stat-card">
+                            <div class="stat-label">本日の予約</div>
+                            <div class="stat-number" id="totalReservations">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">登録ユーザー</div>
+                            <div class="stat-number" id="totalUsers">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">稼働率</div>
+                            <div class="stat-number" id="utilizationRate">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">利用可能ブース</div>
+                            <div class="stat-number" id="activeBooths">7</div>
+                        </div>
+                    </div>
+
+                    <!-- 予約一覧テーブル -->
+                    <h3 style="margin-top: 2rem; margin-bottom: 1rem;">全予約一覧</h3>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f8f9fa;">
+                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--border-color);">予約ID</th>
+                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--border-color);">メールアドレス</th>
+                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--border-color);">ブース</th>
+                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--border-color);">日時</th>
+                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--border-color);">時間</th>
+                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--border-color);">カレッジ</th>
+                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--border-color);">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminReservationsList">
+                                <!-- 動的生成 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ============================================
+         モーダルウィンドウ
+         ============================================ -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 1.5rem;">予約確認</h2>
+            <div id="confirmDetails"></div>
+            <div style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn btn-secondary" onclick="ModalController.closeModal('confirmModal')" style="background: #95a5a6; color: white;">キャンセル</button>
+                <button class="btn btn-primary" onclick="ReservationController.confirmReservation()">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 管理者用 予約追加・編集モーダル -->
+    <div id="adminAddEditModal" class="modal">
+        <div class="modal-content">
+            <h2 id="adminModalTitle" style="margin-bottom: 1.5rem;">新規予約作成</h2>
+            <form id="adminReservationForm" onsubmit="AdminControllerInstance.saveReservation(event)">
+                <input type="hidden" id="adminReservationId">
+                <div class="form-group">
+                    <label for="adminStudentEmail">学生メールアドレス</label>
+                    <input type="email" id="adminStudentEmail" required>
+                </div>
+                <div class="form-group">
+                    <label for="adminDate">日付</label>
+                    <input type="date" id="adminDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="adminTime">開始時間</label>
+                    <input type="time" id="adminTime" step="600" required>
+                </div>
+                <div class="form-group">
+                    <label for="adminDuration">利用時間（分）</label>
+                    <input type="number" id="adminDuration" value="60" step="10" required>
+                </div>
+                <div class="form-group">
+                    <label for="adminBoothId">ブース</label>
+                    <select id="adminBoothId" required>
+                        <!-- AppConfigから動的に生成 -->
+                    </select>
+                </div>
+                 <div class="form-group">
+                    <label for="adminPurpose">目的</label>
+                    <textarea id="adminPurpose" rows="2"></textarea>
+                </div>
+                <div style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" class="btn btn-secondary" onclick="ModalController.closeModal('adminAddEditModal')" style="background: #95a5a6; color: white;">キャンセル</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <!-- ============================================
+         JavaScriptモジュール
+         ============================================ -->
+    <script>
+        'use strict';
+
+        /**
+         * アプリケーション設定モジュール
+         * システム全体の設定値を管理
+         */
+        const AppConfig = {
+            collegeMap: {
+                'c': { name: 'ITカレッジ' },
+                'a': { name: 'クリエイターズカレッジ' },
+                'b': { name: 'ミュージックカレッジ' },
+                'd': { name: 'テクノロジーカレッジ' },
+                'g': { name: 'デザインカレッジ' }
+            },
+            booths: [
+                { id: 1, name: 'ブース1', college: 'd', collegeName: 'テクノロジーカレッジ' },
+                { id: 2, name: 'ブース2', college: 'c', collegeName: 'ITカレッジ' },
+                { id: 3, name: 'ブース3', college: 'a', collegeName: 'クリエイターズカレッジ' },
+                { id: 4, name: 'ブース4', college: 'g', collegeName: 'デザインカレッジ' },
+                { id: 5, name: 'ブース5', college: 'b', collegeName: 'ミュージックカレッジ' },
+                { id: 6, name: 'ブース6', college: 'common', collegeName: '共通利用' },
+                { id: 7, name: 'ブース7', college: 'common', collegeName: '共通利用' }
+            ],
+            businessHours: {
+                start: 9,
+                end: 17,
+                slotDuration: 10
+            },
+            adminUsers: [
+                'admin@g.neec.ac.jp', // Example admin
+            ],
+            emailConfig: {
+                domain: '@g.neec.ac.jp',
+                pattern: /^k[0-9]{3}[a-z][0-9]{4}@g\.neec\.ac\.jp$/
+            }
+        };
+
+        /**
+         * データストレージモジュール
+         * LocalStorageを使用したデータ永続化層
+         */
+        class DataStorage {
+            constructor() {
+                this.storagePrefix = 'reservation_system_';
+            }
+            save(key, value) {
+                try {
+                    localStorage.setItem(this.storagePrefix + key, JSON.stringify(value));
+                    return true;
+                } catch (error) {
+                    console.error('Storage save error:', error);
+                    return false;
+                }
+            }
+            load(key, defaultValue = null) {
+                try {
+                    const item = localStorage.getItem(this.storagePrefix + key);
+                    return item ? JSON.parse(item) : defaultValue;
+                } catch (error) {
+                    console.error('Storage load error:', error);
+                    return defaultValue;
+                }
+            }
+        }
+
+        /**
+         * 認証コントローラー
+         * ユーザー認証とセッション管理
+         */
+        class AuthenticationController {
+            constructor(storage) {
+                this.storage = storage;
+                this.currentUser = null;
+                this.users = this.storage.load('users', []);
+            }
+
+            initialize() {
+                const savedUser = this.storage.load('currentUser');
+                if (savedUser) {
+                    this.currentUser = savedUser;
+                    this.showLoggedInState();
+                }
+            }
+
+            handleLogin(event) {
+                event.preventDefault();
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+
+                const user = this.users.find(u => u.email === email);
+
+                if (!user) {
+                    NotificationService.show('メールアドレスまたはパスワードが正しくありません', 'error');
+                    return;
+                }
+
+                if (user.password !== password) { // In a real app, use hashed passwords
+                    NotificationService.show('メールアドレスまたはパスワードが正しくありません', 'error');
+                    return;
+                }
+
+                if (!user.verified) {
+                    NotificationService.show('メールアドレスが認証されていません。', 'error');
+                    return;
+                }
+
+                const studentId = email.split('@')[0];
+                const collegeChar = studentId.charAt(4);
+                const userCollege = AppConfig.collegeMap[collegeChar];
+                const isAdmin = AppConfig.adminUsers.includes(email);
+
+                this.currentUser = {
+                    email: email,
+                    studentId: studentId,
+                    college: collegeChar,
+                    collegeName: userCollege ? userCollege.name : '不明',
+                    isAdmin: isAdmin,
+                };
+
+                this.storage.save('currentUser', this.currentUser);
+                this.showLoggedInState();
+                NotificationService.show('ログインしました', 'success');
+            }
+
+            handleRegister(event) {
+                event.preventDefault();
+                const email = document.getElementById('regEmail').value;
+                const password = document.getElementById('regPassword').value;
+                const passwordConfirm = document.getElementById('regPasswordConfirm').value;
+
+                if (!AppConfig.emailConfig.pattern.test(email)) {
+                    NotificationService.show('学校指定のメールアドレス形式ではありません', 'error');
+                    return;
+                }
+                if (password !== passwordConfirm) {
+                    NotificationService.show('パスワードが一致しません', 'error');
+                    return;
+                }
+                if (this.users.some(u => u.email === email)) {
+                    NotificationService.show('このメールアドレスは既に使用されています', 'error');
+                    return;
+                }
+
+                const studentId = email.split('@')[0];
+                const collegeChar = studentId.charAt(4);
+                const userCollege = AppConfig.collegeMap[collegeChar];
+
+                const newUser = {
+                    email: email,
+                    password: password, // In a real app, hash this
+                    studentId: studentId,
+                    college: collegeChar,
+                    collegeName: userCollege ? userCollege.name : '不明',
+                    verified: false
+                };
+                
+                this.users.push(newUser);
+                this.storage.save('users', this.users);
+
+                document.getElementById('registerForm').classList.add('hidden');
+                document.getElementById('loginForm').classList.add('hidden');
+                document.getElementById('verificationMessage').classList.remove('hidden');
+                
+                const verifyButton = document.getElementById('verifyButton');
+                verifyButton.onclick = () => this.verifyUser(email);
+            }
+
+            verifyUser(email) {
+                const user = this.users.find(u => u.email === email);
+                if (user) {
+                    user.verified = true;
+                    this.storage.save('users', this.users);
+                    NotificationService.show('メールアドレスが認証されました。ログインしてください。', 'success');
+                    document.getElementById('verificationMessage').classList.add('hidden');
+                    this.showLoginForm();
+                }
+            }
+
+            showLoggedInState() {
+                document.getElementById('header').classList.remove('hidden');
+                document.getElementById('userEmail').textContent = this.currentUser.studentId;
+                
+                if (this.currentUser.isAdmin) {
+                    document.getElementById('adminLink').classList.remove('hidden');
+                }
+                
+                NavigationController.navigateTo('reservation');
+                ReservationController.initialize();
+            }
+
+            logout() {
+                if (confirm('ログアウトしますか？')) {
+                    this.storage.save('currentUser', null);
+                    this.currentUser = null;
+                    document.getElementById('header').classList.add('hidden');
+                    NavigationController.navigateTo('login');
+                    NotificationService.show('ログアウトしました', 'success');
+                }
+            }
+
+            showRegisterForm() {
+                document.getElementById('loginForm').classList.add('hidden');
+                document.getElementById('verificationMessage').classList.add('hidden');
+                document.getElementById('registerForm').classList.remove('hidden');
+            }
+
+            showLoginForm() {
+                document.getElementById('loginForm').classList.remove('hidden');
+                document.getElementById('verificationMessage').classList.add('hidden');
+                document.getElementById('registerForm').classList.add('hidden');
+            }
+
+            getCurrentUser() {
+                return this.currentUser;
+            }
+        }
+        
+        /**
+         * 予約管理コントローラー
+         * 予約の作成、更新、削除を管理
+         */
+        class ReservationManagementController {
+            constructor(storage) {
+                this.storage = storage;
+                this.selectedTime = null;
+                this.pendingReservation = null;
+                this.reservations = [];
+            }
+
+            initialize() {
+                this.loadReservations();
+                this.renderTimeSlots();
+                this.setDateConstraints();
+            }
+
+            loadReservations() {
+                this.reservations = this.storage.load('reservations', []);
+            }
+
+            setDateConstraints() {
+                const dateInput = document.getElementById('reservationDate');
+                if (dateInput) {
+                    const today = new Date();
+                    const maxDate = new Date();
+                    maxDate.setMonth(maxDate.getMonth() + 3);
+                    
+                    dateInput.min = today.toISOString().split('T')[0];
+                    dateInput.max = maxDate.toISOString().split('T')[0];
+                }
+            }
+
+            renderTimeSlots() {
+                const container = document.getElementById('timeSlots');
+                if (!container) return;
+
+                const slots = [];
+                const { start, end, slotDuration } = AppConfig.businessHours;
+                
+                for (let hour = start; hour < end; hour++) {
+                    for (let min = 0; min < 60; min += slotDuration) {
+                        const time = `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+                        slots.push(time);
+                    }
+                }
+
+                container.innerHTML = slots.map(time => `
+                    <div class="time-slot" 
+                         onclick="ReservationController.selectTime('${time}')"
+                         data-time="${time}">
+                        ${time}
+                    </div>
+                `).join('');
+            }
+
+            selectTime(time) {
+                document.querySelectorAll('.time-slot').forEach(slot => slot.classList.remove('selected'));
+                const selectedSlot = document.querySelector(`[data-time="${time}"]`);
+                if (selectedSlot && !selectedSlot.classList.contains('unavailable')) {
+                    selectedSlot.classList.add('selected');
+                    this.selectedTime = time;
+                }
+            }
+
+            updateAvailability() {
+                const date = document.getElementById('reservationDate').value;
+                if (!date) return;
+
+                document.querySelectorAll('.time-slot').forEach(slot => {
+                    slot.classList.remove('unavailable', 'selected');
+                });
+                this.selectedTime = null;
+
+                const allBookedSlots = this.reservations
+                    .filter(r => r.date === date)
+                    .flatMap(r => {
+                        const booked = [];
+                        const [startHour, startMin] = r.startTime.split(':').map(Number);
+                        const startMinutes = startHour * 60 + startMin;
+                        
+                        for (let i = 0; i < r.duration; i += AppConfig.businessHours.slotDuration) {
+                            const slotMinutes = startMinutes + i;
+                            const hour = Math.floor(slotMinutes / 60);
+                            const min = slotMinutes % 60;
+                            booked.push({
+                                time: `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`,
+                                boothId: r.boothId
+                            });
+                        }
+                        return booked;
+                    });
+                
+                const bookedCountByTime = allBookedSlots.reduce((acc, slot) => {
+                    acc[slot.time] = (acc[slot.time] || 0) + 1;
+                    return acc;
+                }, {});
+
+                Object.entries(bookedCountByTime).forEach(([time, count]) => {
+                     if (count >= AppConfig.booths.length) {
+                        const slotEl = document.querySelector(`[data-time="${time}"]`);
+                        if (slotEl) {
+                            slotEl.classList.add('unavailable');
+                        }
+                     }
+                });
+            }
+
+            assignBooth(date, startTime, duration) {
+                const currentUser = AuthController.getCurrentUser();
+                if (!currentUser) return null;
+                
+                const [startHour, startMin] = startTime.split(':').map(Number);
+                const startMinutes = startHour * 60 + startMin;
+                const endMinutes = startMinutes + duration;
+
+                const checkAvailability = (booth) => {
+                    return !this.reservations.some(reservation => {
+                        if (reservation.date !== date || reservation.boothId !== booth.id) return false;
+                        const [resStartHour, resStartMin] = reservation.startTime.split(':').map(Number);
+                        const resStartMinutes = resStartHour * 60 + resStartMin;
+                        const resEndMinutes = resStartMinutes + reservation.duration;
+                        return (startMinutes < resEndMinutes && endMinutes > resStartMinutes);
+                    });
+                };
+                
+                const boothGroups = { ownCollege: [], common: [], otherCollege: [] };
+                
+                const boothReservationCounts = AppConfig.booths.reduce((acc, booth) => {
+                    acc[booth.id] = this.reservations.filter(r => r.boothId === booth.id).length;
+                    return acc;
+                }, {});
+
+                AppConfig.booths.forEach(booth => {
+                    if (!checkAvailability(booth)) return;
+                    
+                    const boothWithCount = { ...booth, reservationCount: boothReservationCounts[booth.id] };
+
+                    if (booth.college === currentUser.college) {
+                        boothGroups.ownCollege.push(boothWithCount);
+                    } else if (booth.college === 'common') {
+                        boothGroups.common.push(boothWithCount);
+                    } else {
+                        boothGroups.otherCollege.push(boothWithCount);
+                    }
+                });
+                
+                boothGroups.ownCollege.sort((a, b) => a.reservationCount - b.reservationCount);
+                boothGroups.common.sort((a, b) => a.reservationCount - b.reservationCount);
+                boothGroups.otherCollege.sort((a, b) => a.reservationCount - b.reservationCount);
+                
+                return boothGroups.ownCollege[0] || boothGroups.common[0] || boothGroups.otherCollege[0] || null;
+            }
+
+            handleReservation(event) {
+                event.preventDefault();
+                if (!this.selectedTime) {
+                    NotificationService.show('時間を選択してください', 'error');
+                    return;
+                }
+
+                const date = document.getElementById('reservationDate').value;
+                const duration = parseInt(document.getElementById('duration').value);
+                const purpose = document.getElementById('purpose').value;
+                const reminder = document.getElementById('reminder').checked;
+                const currentUser = AuthController.getCurrentUser();
+                
+                const assignedBooth = this.assignBooth(date, this.selectedTime, duration);
+                
+                if (!assignedBooth) {
+                    NotificationService.show('選択した時間帯に利用可能なブースがありません', 'error');
+                    return;
+                }
+
+                const isOtherCollege = assignedBooth.college !== currentUser.college && assignedBooth.college !== 'common';
+
+                this.pendingReservation = {
+                    id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    studentId: currentUser.studentId,
+                    email: currentUser.email,
+                    boothId: assignedBooth.id,
+                    boothName: assignedBooth.name,
+                    collegeName: assignedBooth.collegeName,
+                    date: date,
+                    startTime: this.selectedTime,
+                    duration: duration,
+                    purpose: purpose,
+                    reminder: reminder,
+                    isOtherCollege: isOtherCollege,
+                    createdAt: new Date().toISOString(),
+                    status: 'confirmed'
+                };
+
+                ModalController.showConfirmModal(this.pendingReservation);
+            }
+
+            confirmReservation() {
+                if (!this.pendingReservation) return;
+
+                this.reservations.push(this.pendingReservation);
+                this.storage.save('reservations', this.reservations);
+
+                console.log('予約確認メール送信:', { to: this.pendingReservation.email });
+                if (this.pendingReservation.isOtherCollege) {
+                    console.log('Slack通知送信:', { channel: `#${this.pendingReservation.collegeName}` });
+                }
+
+                ModalController.closeModal('confirmModal');
+                NotificationService.show('予約が完了しました', 'success');
+                this.resetReservationForm();
+            }
+
+            resetReservationForm() {
+                document.getElementById('reservationDate').value = '';
+                document.getElementById('purpose').value = '';
+                document.getElementById('reminder').checked = false;
+                this.selectedTime = null;
+                this.pendingReservation = null;
+                this.renderTimeSlots();
+            }
+
+            loadUserReservations() {
+                const container = document.getElementById('userReservations');
+                const currentUser = AuthController.getCurrentUser();
+                if (!currentUser) return;
+
+                const userReservations = this.reservations
+                    .filter(r => r.email === currentUser.email)
+                    .sort((a, b) => new Date(`${a.date}T${a.startTime}`) - new Date(`${b.date}T${b.startTime}`));
+                
+                if (userReservations.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">予約はありません</p>';
+                    return;
+                }
+
+                container.innerHTML = userReservations.map(res => {
+                    const isPast = new Date(`${res.date}T${res.startTime}`) < new Date();
+                    return `
+                        <div class="reservation-item" style="border: 1px solid var(--border-color); border-radius: var(--border-radius); padding: 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; ${isPast ? 'opacity: 0.6;' : ''}">
+                            <div>
+                                <h4 style="margin-bottom: 0.5rem;">${res.date} ${res.startTime} ${isPast ? ' (終了)' : ''}</h4>
+                                <p>ブース: ${res.boothName}</p>
+                                <p>時間: ${res.duration}分</p>
+                            </div>
+                            <div>
+                                ${!isPast ? `<button class="btn btn-danger" onclick="ReservationController.cancelReservation('${res.id}')" style="background: var(--danger-color); color: white;">キャンセル</button>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            cancelReservation(reservationId) {
+                if (!confirm('予約をキャンセルしますか？')) return;
+                const index = this.reservations.findIndex(r => r.id === reservationId);
+                if (index === -1) return;
+                const canceled = this.reservations[index];
+                this.reservations.splice(index, 1);
+                this.storage.save('reservations', this.reservations);
+                console.log('キャンセルメール送信:', { to: canceled.email });
+                NotificationService.show('予約をキャンセルしました', 'success');
+                this.loadUserReservations();
+            }
+        }
+
+        /**
+         * 管理者コントローラー
+         */
+        class AdminController {
+            constructor(storage) {
+                this.storage = storage;
+            }
+
+            loadAdminData() {
+                this.updateStatistics();
+                this.loadAllReservations();
+                this.populateBoothSelector();
+            }
+            
+            populateBoothSelector() {
+                const select = document.getElementById('adminBoothId');
+                select.innerHTML = AppConfig.booths.map(b => `<option value="${b.id}">${b.name} (${b.collegeName})</option>`).join('');
+            }
+            
+            updateStatistics() {
+                const reservations = this.storage.load('reservations', []);
+                const users = this.storage.load('users', []);
+                const today = new Date().toISOString().split('T')[0];
+                
+                document.getElementById('totalReservations').textContent = reservations.filter(r => r.date === today).length;
+                document.getElementById('totalUsers').textContent = users.length;
+                
+                const totalSlots = AppConfig.booths.length * (AppConfig.businessHours.end - AppConfig.businessHours.start) * (60 / AppConfig.businessHours.slotDuration);
+                const bookedSlots = reservations.filter(r => r.date === today).reduce((sum, r) => sum + (r.duration / AppConfig.businessHours.slotDuration), 0);
+                document.getElementById('utilizationRate').textContent = `${totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) : 0}%`;
+                document.getElementById('activeBooths').textContent = AppConfig.booths.length;
+            }
+
+            loadAllReservations() {
+                const reservations = this.storage.load('reservations', []);
+                const tbody = document.getElementById('adminReservationsList');
+                
+                if (reservations.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem;">予約データがありません</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = reservations.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(res => `
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 0.75rem;">${res.id.substring(4, 10)}...</td>
+                        <td style="padding: 0.75rem;">${res.email}</td>
+                        <td style="padding: 0.75rem;">${res.boothName}</td>
+                        <td style="padding: 0.75rem;">${res.date}</td>
+                        <td style="padding: 0.75rem;">${res.startTime} (${res.duration}分)</td>
+                        <td style="padding: 0.75rem;">${res.collegeName}</td>
+                        <td style="padding: 0.75rem; display: flex; gap: 5px;">
+                            <button onclick="AdminControllerInstance.openEditModal('${res.id}')" style="background: #f39c12; color: white; border:none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">編集</button>
+                            <button onclick="AdminControllerInstance.adminCancelReservation('${res.id}')" style="background: var(--danger-color); color: white; border:none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">削除</button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+            
+            openAddModal() {
+                document.getElementById('adminReservationForm').reset();
+                document.getElementById('adminReservationId').value = '';
+                document.getElementById('adminModalTitle').textContent = '新規予約作成';
+                ModalController.openModal('adminAddEditModal');
+            }
+
+            openEditModal(reservationId) {
+                const reservations = this.storage.load('reservations', []);
+                const reservation = reservations.find(r => r.id === reservationId);
+                if (!reservation) return;
+
+                document.getElementById('adminReservationId').value = reservation.id;
+                document.getElementById('adminStudentEmail').value = reservation.email;
+                document.getElementById('adminDate').value = reservation.date;
+                document.getElementById('adminTime').value = reservation.startTime;
+                document.getElementById('adminDuration').value = reservation.duration;
+                document.getElementById('adminBoothId').value = reservation.boothId;
+                document.getElementById('adminPurpose').value = reservation.purpose || '';
+                document.getElementById('adminModalTitle').textContent = '予約編集';
+                ModalController.openModal('adminAddEditModal');
+            }
+
+            saveReservation(event) {
+                event.preventDefault();
+                const reservations = this.storage.load('reservations', []);
+                const users = this.storage.load('users', []);
+
+                const id = document.getElementById('adminReservationId').value;
+                const email = document.getElementById('adminStudentEmail').value;
+                const date = document.getElementById('adminDate').value;
+                const startTime = document.getElementById('adminTime').value;
+                const duration = parseInt(document.getElementById('adminDuration').value);
+                const boothId = parseInt(document.getElementById('adminBoothId').value);
+                const purpose = document.getElementById('adminPurpose').value;
+
+                if (!users.some(u => u.email === email)) {
+                    NotificationService.show('指定されたメールアドレスのユーザーは存在しません', 'error');
+                    return;
+                }
+                
+                const booth = AppConfig.booths.find(b => b.id === boothId);
+                
+                if (id) { // Edit existing
+                    const index = reservations.findIndex(r => r.id === id);
+                    if (index !== -1) {
+                        reservations[index] = { ...reservations[index], email, date, startTime, duration, boothId, purpose, boothName: booth.name, collegeName: booth.collegeName };
+                    }
+                } else { // Add new
+                    const studentId = email.split('@')[0];
+                    reservations.push({
+                        id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                        email, studentId, date, startTime, duration, boothId, purpose,
+                        boothName: booth.name, collegeName: booth.collegeName,
+                        createdAt: new Date().toISOString()
+                    });
+                }
+                
+                this.storage.save('reservations', reservations);
+                NotificationService.show('予約情報を保存しました', 'success');
+                ModalController.closeModal('adminAddEditModal');
+                this.loadAdminData();
+            }
+
+
+            adminCancelReservation(reservationId) {
+                if (!confirm('この予約を削除しますか？')) return;
+                let reservations = this.storage.load('reservations', []);
+                const canceled = reservations.find(r => r.id === reservationId);
+                reservations = reservations.filter(r => r.id !== reservationId);
+                this.storage.save('reservations', reservations);
+                console.log('管理者削除通知メール送信:', { to: canceled.email });
+                NotificationService.show('予約を削除しました', 'success');
+                this.loadAdminData();
+            }
+        }
+
+        /**
+         * ナビゲーションコントローラー
+         */
+        const NavigationController = {
+            navigateTo(pageName) {
+                document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+                const targetPage = document.getElementById(pageName + 'Page');
+                if (targetPage) targetPage.classList.add('active');
+                this.updateNavigation(pageName);
+                this.handlePageLoad(pageName);
+            },
+            updateNavigation(pageName) {
+                // ... (UI update logic)
+            },
+            handlePageLoad(pageName) {
+                switch (pageName) {
+                    case 'reservation':
+                        ReservationController.initialize();
+                        break;
+                    case 'management':
+                        ReservationController.loadUserReservations();
+                        break;
+                    case 'admin':
+                        const currentUser = AuthController.getCurrentUser();
+                        if (currentUser && currentUser.isAdmin) {
+                            AdminControllerInstance.loadAdminData();
+                        } else {
+                            this.navigateTo('reservation');
+                            NotificationService.show('管理者権限が必要です', 'error');
+                        }
+                        break;
+                }
+            }
+        };
+
+        /**
+         * モーダルコントローラー
+         */
+        const ModalController = {
+            showConfirmModal(reservation) {
+                const details = document.getElementById('confirmDetails');
+                details.innerHTML = `
+                    <p><strong>日付:</strong> ${reservation.date}</p>
+                    <p><strong>時間:</strong> ${reservation.startTime} から ${reservation.duration}分</p>
+                    <p><strong>ブース:</strong> ${reservation.boothName}</p>
+                    ${reservation.isOtherCollege ? `<div class="alert alert-info">注意: 他カレッジのブースが割り当てられました。</div>` : ''}
+                `;
+                this.openModal('confirmModal');
+            },
+            openModal(modalId) { document.getElementById(modalId).style.display = 'block'; },
+            closeModal(modalId) { document.getElementById(modalId).style.display = 'none'; }
+        };
+
+        /**
+         * 通知サービス
+         */
+        const NotificationService = {
+            show(message, type = 'info') {
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert alert-${type}`;
+                alertDiv.textContent = message;
+                alertDiv.style.cssText = `position: fixed; top: 80px; right: 20px; z-index: 1001;`;
+                document.body.appendChild(alertDiv);
+                setTimeout(() => alertDiv.remove(), 3000);
+            }
+        };
+
+        /**
+         * アプリケーション初期化
+         */
+        const initializeApp = () => {
+            const storage = new DataStorage();
+            window.AuthController = new AuthenticationController(storage);
+            window.ReservationController = new ReservationManagementController(storage);
+            window.AdminControllerInstance = new AdminController(storage);
+            window.NavigationController = NavigationController;
+            window.ModalController = ModalController;
+            window.NotificationService = NotificationService;
+            
+            AuthController.initialize();
+
+            window.onclick = (event) => {
+                if (event.target.classList.contains('modal')) {
+                    event.target.style.display = 'none';
+                }
+            };
+        };
+
+        document.addEventListener('DOMContentLoaded', initializeApp);
+    </script>
+</body>
+</html>
 # tora7777.github.io
