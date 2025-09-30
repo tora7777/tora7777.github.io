@@ -110,7 +110,8 @@ class EmailService {
     sendVerificationEmail(toEmail) {
         // 認証トークンを生成（本番環境ではサーバーサイドで生成すべき）
         const verificationToken = this.generateVerificationToken();
-        const verificationLink = `${window.location.origin}/verify?token=${verificationToken}&email=${encodeURIComponent(toEmail)}`;
+        // 修正後: index.htmlがロードされるパスにクエリパラメータを渡す
+        const verificationLink = `${window.location.origin}${window.location.pathname}?token=${verificationToken}&email=${encodeURIComponent(toEmail)}`;
         
         // トークンを一時的に保存（本番環境ではサーバーに保存）
         const tokens = JSON.parse(localStorage.getItem('verification_tokens') || '{}');
