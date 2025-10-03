@@ -72,7 +72,8 @@ class EmailService {
     constructor() {
         this.SERVICE_ID = 'service_f0gi9iu';
         this.VERIFICATION_TEMPLATE_ID = 'template_8ybqr9d'; // 1. 認証メール用テンプレートID (変更なし)
-        this.RESERVATION_NOTIFICATION_ID = 'template_reservation_notify'; // 2. 予約/キャンセル通知統合テンプレートID (新規)
+        // ★★★ 確認したEmailJSの統合テンプレートIDに置き換えてください ★★★
+        this.RESERVATION_NOTIFICATION_ID = 'template_reservation_notify'; // 例: 'template_yfflz44'
         this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT';
 
         if (typeof emailjs !== 'undefined') {
@@ -633,7 +634,9 @@ class ReservationManagementController {
         try {
             await this.emailService.sendReservationNotification(this.pendingReservation, 'CONFIRM');
         } catch(error) {
-            NotificationService.show('メール送信に失敗しました。予約は完了しています。', 'error');
+            // エラー通知をより明確にする
+            console.error("予約完了メール送信エラー:", error);
+            NotificationService.show('メール送信に失敗しました。予約は完了しています。EmailJSの設定を確認してください。', 'error');
             // メール送信に失敗しても予約処理は続行
         }
 
@@ -694,13 +697,15 @@ class ReservationManagementController {
         const index = this.reservations.findIndex(r => r.id === reservationId);
         if (index === -1) return;
         
-        const canceled = this.reservations[index]; // ★修正ポイント1: キャンセルされた予約オブジェクトを取得
+        const canceled = this.reservations[index]; // キャンセルされた予約オブジェクトを取得
 
         // ★統合したメール送信メソッドを使用
         try {
-            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // ★修正ポイント2: 取得したオブジェクトと 'CANCEL' を渡す
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // 取得したオブジェクトと 'CANCEL' を渡す
         } catch(error) {
-            NotificationService.show('キャンセルメールの送信に失敗しました。', 'error');
+            // エラー通知をより明確にする
+            console.error("予約キャンセルメール送信エラー:", error);
+            NotificationService.show('キャンセルメールの送信に失敗しました。EmailJSの設定を確認してください。', 'error');
         }
 
         this.reservations.splice(index, 1);
@@ -858,7 +863,9 @@ class AdminController {
             try {
                 await this.emailService.sendReservationNotification(newReservation, 'CONFIRM');
             } catch(e) {
-                NotificationService.show('メール送信に失敗しました。予約は完了しています。', 'error');
+                // エラー通知をより明確にする
+                console.error("管理者による新規予約メール送信エラー:", e);
+                NotificationService.show('メール送信に失敗しました。予約は完了しています。EmailJSの設定を確認してください。', 'error');
             }
         }
         
@@ -871,14 +878,16 @@ class AdminController {
     async adminCancelReservation(reservationId) {
         if (!confirm('この予約を削除してもよろしいですか？')) return;
         let reservations = this.storage.load('reservations', []);
-        const canceled = reservations.find(r => r.id === reservationId); // ★修正ポイント3: キャンセルされた予約オブジェクトを取得
+        const canceled = reservations.find(r => r.id === reservationId); // キャンセルされた予約オブジェクトを取得
         if (!canceled) return;
         
         try {
             // ★統合したメール送信メソッドを使用
-            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // ★修正ポイント4: 取得したオブジェクトと 'CANCEL' を渡す
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // 取得したオブジェクトと 'CANCEL' を渡す
         } catch(e) {
-            NotificationService.show('キャンセルメールの送信に失敗しました。', 'error');
+            // エラー通知をより明確にする
+            console.error("管理者による予約キャンセルメール送信エラー:", e);
+            NotificationService.show('キャンセルメールの送信に失敗しました。EmailJSの設定を確認してください。', 'error');
         }
 
         reservations = reservations.filter(r => r.id !== reservationId);
