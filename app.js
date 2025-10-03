@@ -73,7 +73,7 @@ class EmailService {
         this.SERVICE_ID = 'service_f0gi9iu';
         this.VERIFICATION_TEMPLATE_ID = 'template_8ybqr9d'; // 1. 認証メール用テンプレートID (変更なし)
         // ★★★ 確認したEmailJSの統合テンプレートIDに置き換えてください ★★★
-        this.RESERVATION_NOTIFICATION_ID = 'template_reservation_notify'; // 例: 'template_yfflz44'
+        this.RESERVATION_NOTIFICATION_ID = 'template_yfflz44'; // 例: 'template_yfflz44'
         this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT';
 
         if (typeof emailjs !== 'undefined') {
