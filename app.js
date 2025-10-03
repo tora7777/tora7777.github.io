@@ -37,8 +37,6 @@ const AppConfig = {
     }
 };
 
-// ★DataStorage クラスは不要になりました
-
 /**
  * メール送信サービス
  * EmailJSと連携してメールを送信する
@@ -162,11 +160,18 @@ class AuthenticationController {
         this.currentUser = null;
     }
 
+    // ★修正: FirestoreのDBオブジェクトがロードされるのを待ってから処理を開始
     async initialize() {
-        // セッション情報はLocalStorageから取得 (Firestoreは負荷軽減のため使用しない)
+        // DBオブジェクトが初期化されるのを待つ (window.dbが存在するかチェック)
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // セッション情報はLocalStorageから取得
         const savedUser = localStorage.getItem('currentUser');
         if (savedUser) {
             this.currentUser = JSON.parse(savedUser);
+            // ログイン状態であればUIを更新
             this.showLoggedInState();
         }
     }
@@ -175,6 +180,7 @@ class AuthenticationController {
      * Firestoreからユーザーをメールアドレスで検索 (コレクション: users)
      */
     async getUserByEmail(email) {
+        // window.dbが確実に存在することを期待
         const userDocRef = doc(window.db, "users", email); 
         const userDoc = await getDoc(userDocRef);
         
@@ -194,6 +200,12 @@ class AuthenticationController {
         const password = document.getElementById('password').value;
 
         try {
+            // DBロード待機はinitializeで実施済みだが、念のためDBの存在を確認
+            if (typeof window.db === 'undefined') {
+                NotificationService.show('データベース接続が未完了です。時間をおいて再試行してください。', 'error');
+                return;
+            }
+            
             const user = await this.getUserByEmail(email); 
 
             if (!user) {
@@ -233,8 +245,9 @@ class AuthenticationController {
             this.showLoggedInState();
             NotificationService.show('ログインしました', 'success');
         } catch (error) {
+            // Firestoreのエラー(権限、接続など)はここでキャッチされる
             console.error("Login Error:", error);
-            NotificationService.show('ログイン処理中にエラーが発生しました。', 'error');
+            NotificationService.show('ログイン処理中にエラーが発生しました。データベース接続を確認してください。', 'error');
         }
     }
 
@@ -274,12 +287,10 @@ class AuthenticationController {
         const usersCol = collection(window.db, "users");
         
         try {
-            // ★Firestoreにユーザーを保存 (メールアドレスをDocument IDとして使用)
             await setDoc(doc(usersCol, email), newUser); 
 
             await this.emailService.sendVerificationEmail(email);
             
-            // 成功メッセージを表示
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('verificationMessage').classList.remove('hidden');
             document.getElementById('verificationMessage').innerHTML = `
@@ -295,14 +306,18 @@ class AuthenticationController {
             `;
         } catch (error) {
             console.error("Registration Error:", error);
-            NotificationService.show('登録処理中にエラーが発生しました。', 'error');
-            // エラーの場合は登録を取り消す (DBから削除)
+            NotificationService.show('登録処理中にエラーが発生しました。データベース接続を確認してください。', 'error');
             await deleteDoc(doc(usersCol, email)).catch(e => console.error("Cleanup failed:", e));
         }
     }
 
     // ======= checkVerificationFromURL (非同期化) =======
     async checkVerificationFromURL() {
+        // DBロード待機
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
         const email = urlParams.get('email');
@@ -320,7 +335,6 @@ class AuthenticationController {
             if (isVerified) {
                 const user = await this.getUserByEmail(email); 
                 if (user) {
-                    // ★Firestoreのユーザー情報を更新
                     const userDocRef = doc(window.db, "users", user.docId);
                     await updateDoc(userDocRef, { verified: true });
                     
@@ -364,6 +378,11 @@ class AuthenticationController {
     // ======= verifyUser（デモ用、Firestore対応）=======
     async verifyUser(email) {
         try {
+            // DBロード待機
+            while (typeof window.db === 'undefined') {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
             const user = await this.getUserByEmail(email);
             if (user) {
                 const userDocRef = doc(window.db, "users", user.docId);
@@ -392,7 +411,7 @@ class AuthenticationController {
 
     logout() {
         if (confirm('ログアウトしますか？')) {
-            localStorage.removeItem('currentUser'); // LocalStorageのセッション情報を削除
+            localStorage.removeItem('currentUser'); 
             this.currentUser = null;
             document.getElementById('header').classList.add('hidden');
             document.getElementById('email').value = '';
@@ -433,6 +452,11 @@ class ReservationManagementController {
     // ★★★ Firestoreから予約データを読み込む ★★★
     async loadReservations() {
         try {
+            // DBロード待機
+            while (typeof window.db === 'undefined') {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
             const reservationsCol = collection(window.db, "reservations");
             const reservationSnapshot = await getDocs(reservationsCol);
             
@@ -444,7 +468,7 @@ class ReservationManagementController {
             });
         } catch (error) {
             console.error("Failed to load reservations:", error);
-            NotificationService.show('予約データのロードに失敗しました。', 'error');
+            NotificationService.show('予約データのロードに失敗しました。データベース接続を確認してください。', 'error');
             this.reservations = [];
         }
     }
@@ -464,6 +488,8 @@ class ReservationManagementController {
         this.setDateConstraints();
     }
     
+    // ... (他のメソッドは Firestore対応のまま変更なし) ...
+
     setDateConstraints() {
         const dateInput = document.getElementById('reservationDate');
         if (dateInput) {
@@ -757,6 +783,11 @@ class AdminController {
     }
     
     async getAllReservations() {
+        // DBロード待機
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
         try {
             const reservationsCol = collection(window.db, "reservations");
             const reservationSnapshot = await getDocs(reservationsCol);
@@ -774,6 +805,11 @@ class AdminController {
     }
     
     async getAllUsers() {
+        // DBロード待機
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
         try {
             const usersCol = collection(window.db, "users");
             const userSnapshot = await getDocs(usersCol);
@@ -1010,7 +1046,7 @@ const ModalController = {
         details.innerHTML = `
             <p><strong>日付:</strong> ${reservation.date}</p>
             <p><strong>時間:</strong> ${reservation.startTime} から ${reservation.duration}分</p>
-            <p><strong>割り当てブース:</strong> ${reservation.boothName} (${reservation.assignedCollegeName})</p>
+            <p><strong>割り当てブース:s</strong> ${reservation.boothName} (${reservation.assignedCollegeName})</p>
             ${reservation.isOtherCollege ? `<div class="alert alert-info" style="margin-top: 1rem;">注意: 他カレッジのブースが割り当てられました。担当者に通知が送信されます。</div>` : ''}
         `;
         this.openModal('confirmModal');
@@ -1058,6 +1094,7 @@ const initializeApp = () => {
     window.NotificationService = NotificationService;
     
     // AuthControllerは非同期処理を待たずに実行し、セッションがあればログイン状態にする
+    // initialize() 自体が非同期になり、DBロード完了を待つように変更
     AuthController.initialize();
 
     // URLからの認証トークンをチェック (これも非同期)
@@ -1084,4 +1121,7 @@ const initializeApp = () => {
 };
 
 
-document.addEventListener('DOMContentLoaded', initializeApp);
+// DOMContentLoadedではなく、Firebaseのモジュールロード後に実行されることが望ましい
+// index.htmlで app.js の読み込み順序を調整したため、ここで直接initializeAppを呼び出す
+// document.addEventListener('DOMContentLoaded', initializeApp);
+initializeApp();
