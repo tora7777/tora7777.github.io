@@ -64,19 +64,17 @@ class DataStorage {
 }
 
 /**
- * ★新規追加: メール送信サービス
+ * メール送信サービス
  * EmailJSと連携してメールを送信する
+ * 予約通知とキャンセル通知のテンプレートを統合 (2つに削減)
  */
 class EmailService {
     constructor() {
-        // EmailJSで取得した実際のキーに置き換えてください
-        this.SERVICE_ID = 'service_f0gi9iu'; // EmailJSのService ID
-        this.VERIFICATION_TEMPLATE_ID = 'template_8ybqr9d'; // 認証メール用テンプレートID
-        this.CONFIRMATION_TEMPLATE_ID = 'template_confirm'; // 予約完了メール用テンプレートID
-        this.CANCELLATION_TEMPLATE_ID = 'template_cancel'; // キャンセルメール用テンプレートID
-        this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT'; // EmailJSのPublic Key
+        this.SERVICE_ID = 'service_f0gi9iu';
+        this.VERIFICATION_TEMPLATE_ID = 'template_8ybqr9d'; // 1. 認証メール用テンプレートID (変更なし)
+        this.RESERVATION_NOTIFICATION_ID = 'template_yfflz44'; // 2. 予約/キャンセル通知統合テンプレートID (新規)
+        this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT';
 
-        // EmailJS SDKの初期化
         if (typeof emailjs !== 'undefined') {
             emailjs.init(this.PUBLIC_KEY);
         } else {
@@ -88,12 +86,6 @@ class EmailService {
      * メールを送信する汎用メソッド
      */
    async send(templateId, templateParams) {
-        // デモモードチェック（本番環境では削除）
-        // if (this.SERVICE_ID.includes('xxxxxx')) { // 👈 このチェックでメール送信がスキップされている可能性が高い
-            // console.warn('EmailJS is in demo mode. Configure actual keys for production.');
-            // return Promise.resolve({ status: 200, text: 'Demo mode - email not sent' });   
-        // }
-
         try {
             const response = await emailjs.send(this.SERVICE_ID, templateId, templateParams);
             console.log('Email sent successfully!', response.status, response.text);
@@ -105,15 +97,12 @@ class EmailService {
     }
 
     /**
-     * ユーザー認証メールを送信（実際の認証リンク付き）
+     * ユーザー認証メールを送信
      */
     sendVerificationEmail(toEmail) {
-        // 認証トークンを生成（本番環境ではサーバーサイドで生成すべき）
         const verificationToken = this.generateVerificationToken();
-        // 修正後: index.htmlがロードされるパスにクエリパラメータを渡す
         const verificationLink = `${window.location.origin}${window.location.pathname}?token=${verificationToken}&email=${encodeURIComponent(toEmail)}`;
         
-        // トークンを一時的に保存（本番環境ではサーバーに保存）
         const tokens = JSON.parse(localStorage.getItem('verification_tokens') || '{}');
         tokens[toEmail] = {
             token: verificationToken,
@@ -129,12 +118,30 @@ class EmailService {
     }
 
     /**
-     * 予約完了メールを送信（詳細情報付き）
+     * 予約完了またはキャンセルメールを送信する統合メソッド
+     * @param {object} reservation - 予約データ
+     * @param {string} type - 'CONFIRM' または 'CANCEL'
      */
-    sendConfirmationEmail(reservation) {
+    sendReservationNotification(reservation, type) {
+        let actionType;
+        let actionTypeStatus;
+        
+        if (type === 'CONFIRM') {
+            actionType = '予約完了';
+            actionTypeStatus = '完了';
+        } else if (type === 'CANCEL') {
+            actionType = '予約キャンセル';
+            actionTypeStatus = 'キャンセル';
+        } else {
+            console.error('Invalid notification type:', type);
+            return Promise.reject(new Error('Invalid notification type'));
+        }
+
         const params = {
             to_email: reservation.email,
             student_id: reservation.studentId,
+            action_type: actionType, // Subject用: 予約完了 / 予約キャンセル
+            action_type_status: actionTypeStatus, // Content用: 完了 / キャンセル
             reservation_details: `
                 日付: ${reservation.date}
                 時間: ${reservation.startTime} から ${reservation.duration}分
@@ -142,38 +149,11 @@ class EmailService {
                 予約ID: ${reservation.id}
             `
         };
-        return this.send(this.CONFIRMATION_TEMPLATE_ID, params);
+
+        return this.send(this.RESERVATION_NOTIFICATION_ID, params);
     }
 
-    /**
-     * 予約キャンセルメールを送信
-     */
-    sendCancellationEmail(reservation) {
-        const params = {
-            to_email: reservation.email,
-            student_id: reservation.studentId,
-            reservation_details: `
-                日付: ${reservation.date}
-                時間: ${reservation.startTime}
-                予約ID: ${reservation.id}
-            `
-        };
-        return this.send(this.CANCELLATION_TEMPLATE_ID, params);
-    }
-
-    /**
-     * リマインダーメールを送信（予約1時間前）
-     */
-    sendReminderEmail(reservation) {
-        const params = {
-            to_email: reservation.email,
-            student_id: reservation.studentId,
-            reservation_time: `${reservation.date} ${reservation.startTime}`,
-            booth_name: reservation.boothName
-        };
-        // リマインダー用のテンプレートIDが必要
-        return this.send('template_reminder', params);
-    }
+    // sendConfirmationEmail と sendCancellationEmail は削除または廃止
 
     /**
      * 認証トークンを生成
@@ -194,7 +174,6 @@ class EmailService {
         if (storedData.token !== token) return false;
         if (Date.now() > storedData.expiry) return false;
         
-        // 使用済みトークンを削除
         delete tokens[email];
         localStorage.setItem('verification_tokens', JSON.stringify(tokens));
         
@@ -446,13 +425,10 @@ class AuthenticationController {
  * 予約の作成、更新、削除を管理
  */
 class ReservationManagementController {
-    constructor() {
-    // EmailJSの認証情報
-    this.SERVICE_ID = 'service_f0gi9iu'; // ← 変更済み
-    this.VERIFICATION_TEMPLATE_ID = 'template_verify';
-    this.CONFIRMATION_TEMPLATE_ID = 'template_confirm';
-    this.CANCELLATION_TEMPLATE_ID = 'template_cancel';
-    this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT';
+    constructor(storage, emailService) {
+        this.storage = storage;
+        this.emailService = emailService;
+        this.reservations = [];
     }
 
     initialize() {
@@ -653,9 +629,9 @@ class ReservationManagementController {
     async confirmReservation() {
         if (!this.pendingReservation) return;
 
-        // ★メール送信処理を追加
+        // ★統合したメール送信メソッドを使用
         try {
-            await this.emailService.sendConfirmationEmail(this.pendingReservation);
+            await this.emailService.sendReservationNotification(this.pendingReservation, 'CONFIRM');
         } catch(error) {
             NotificationService.show('メール送信に失敗しました。予約は完了しています。', 'error');
             // メール送信に失敗しても予約処理は続行
@@ -720,9 +696,9 @@ class ReservationManagementController {
         
         const canceled = this.reservations[index];
 
-        // ★メール送信処理を追加
+        // ★統合したメール送信メソッドを使用
         try {
-            await this.emailService.sendCancellationEmail(canceled);
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL');
         } catch(error) {
             NotificationService.show('キャンセルメールの送信に失敗しました。', 'error');
         }
@@ -880,7 +856,7 @@ class AdminController {
             
             // ★新規作成時のみメール送信
             try {
-                await this.emailService.sendConfirmationEmail(newReservation);
+                await this.emailService.sendReservationNotification(newReservation, 'CONFIRM');
             } catch(e) {
                 NotificationService.show('メール送信に失敗しました。予約は完了しています。', 'error');
             }
@@ -899,7 +875,8 @@ class AdminController {
         if (!canceled) return;
         
         try {
-            await this.emailService.sendCancellationEmail(canceled);
+            // ★統合したメール送信メソッドを使用
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL');
         } catch(e) {
             NotificationService.show('キャンセルメールの送信に失敗しました。', 'error');
         }
