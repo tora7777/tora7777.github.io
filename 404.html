@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ページが見つかりません - 予約システム</title>
+<!-- 404ページがロードされたらルートにリダイレクトし、パス情報を保持する -->
+<!-- これにより、/verify?token=xxx のようなURLでもindex.htmlが処理できるようになります -->
+<script>
+(function() {
+// GitHub Pagesのリポジトリ名を含むパスを取得
+var currentPathname = window.location.pathname;
+
+        // ルートURL（リポジトリのトップページ）にリダイレクト。クエリパラメータは自動で付与される。
+        // 例: /repo-name/verify?q=1 -> /repo-name/
+        var redirectPath = currentPathname.substring(0, currentPathname.lastIndexOf('/') + 1);
+        
+        // リダイレクト先に現在のクエリパラメータを付与
+        window.location.replace(redirectPath + window.location.search);
+    })();
+</script>
+
+</head>
+<body>
+<div style="text-align: center; padding-top: 200px; font-family: sans-serif;">
+<h1>システム読み込み中...</h1>
+<p>予約システムへ移動しています。しばらくお待ちください。</p>
+</div>
+</body>
+</html>
