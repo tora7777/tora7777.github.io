@@ -72,7 +72,7 @@ class EmailService {
     constructor() {
         this.SERVICE_ID = 'service_f0gi9iu';
         this.VERIFICATION_TEMPLATE_ID = 'template_8ybqr9d'; // 1. 認証メール用テンプレートID (変更なし)
-        this.RESERVATION_NOTIFICATION_ID = 'template_yfflz44'; // 2. 予約/キャンセル通知統合テンプレートID (新規)
+        this.RESERVATION_NOTIFICATION_ID = 'template_reservation_notify'; // 2. 予約/キャンセル通知統合テンプレートID (新規)
         this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT';
 
         if (typeof emailjs !== 'undefined') {
@@ -694,11 +694,11 @@ class ReservationManagementController {
         const index = this.reservations.findIndex(r => r.id === reservationId);
         if (index === -1) return;
         
-        const canceled = this.reservations[index];
+        const canceled = this.reservations[index]; // ★修正ポイント1: キャンセルされた予約オブジェクトを取得
 
         // ★統合したメール送信メソッドを使用
         try {
-            await this.emailService.sendReservationNotification(canceled, 'CANCEL');
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // ★修正ポイント2: 取得したオブジェクトと 'CANCEL' を渡す
         } catch(error) {
             NotificationService.show('キャンセルメールの送信に失敗しました。', 'error');
         }
@@ -871,12 +871,12 @@ class AdminController {
     async adminCancelReservation(reservationId) {
         if (!confirm('この予約を削除してもよろしいですか？')) return;
         let reservations = this.storage.load('reservations', []);
-        const canceled = reservations.find(r => r.id === reservationId);
+        const canceled = reservations.find(r => r.id === reservationId); // ★修正ポイント3: キャンセルされた予約オブジェクトを取得
         if (!canceled) return;
         
         try {
             // ★統合したメール送信メソッドを使用
-            await this.emailService.sendReservationNotification(canceled, 'CANCEL');
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // ★修正ポイント4: 取得したオブジェクトと 'CANCEL' を渡す
         } catch(e) {
             NotificationService.show('キャンセルメールの送信に失敗しました。', 'error');
         }
