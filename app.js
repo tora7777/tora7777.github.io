@@ -1,5 +1,7 @@
 'use strict';
 
+// ★★★ LocalStorageの依存を排除し、Firestoreのグローバル関数を使用します ★★★
+
 /**
  * アプリケーション設定モジュール
  * システム全体の設定値を管理
@@ -36,45 +38,15 @@ const AppConfig = {
 };
 
 /**
- * データストレージモジュール
- * LocalStorageを使用したデータ永続化層
- */
-class DataStorage {
-    constructor() {
-        this.storagePrefix = 'reservation_system_';
-    }
-    save(key, value) {
-        try {
-            localStorage.setItem(this.storagePrefix + key, JSON.stringify(value));
-            return true;
-        } catch (error) {
-            console.error('Storage save error:', error);
-            return false;
-        }
-    }
-    load(key, defaultValue = null) {
-        try {
-            const item = localStorage.getItem(this.storagePrefix + key);
-            return item ? JSON.parse(item) : defaultValue;
-        } catch (error) {
-            console.error('Storage load error:', error);
-            return defaultValue;
-        }
-    }
-}
-
-/**
  * メール送信サービス
  * EmailJSと連携してメールを送信する
- * 予約通知とキャンセル通知のテンプレートを統合 (2つに削減)
  */
 class EmailService {
     constructor() {
         this.SERVICE_ID = 'service_f0gi9iu';
-        this.VERIFICATION_TEMPLATE_ID = 'template_8ybqr9d'; // 1. 認証メール用テンプレートID (変更なし)
-        // ★★★ 確認したEmailJSの統合テンプレートIDに置き換えてください ★★★
-        this.RESERVATION_NOTIFICATION_ID = 'template_yfflz44'; // 例: 'template_yfflz44'
-        this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT';
+        this.VERIFICATION_TEMPLATE_ID = 'template_8ybqr9d'; 
+        this.RESERVATION_NOTIFICATION_ID = 'template_yfflz44'; 
+        this.PUBLIC_KEY = '9TmVa1GEItX3KSTKT'; 
 
         if (typeof emailjs !== 'undefined') {
             emailjs.init(this.PUBLIC_KEY);
@@ -83,9 +55,6 @@ class EmailService {
         }
     }
 
-    /**
-     * メールを送信する汎用メソッド
-     */
    async send(templateId, templateParams) {
         try {
             const response = await emailjs.send(this.SERVICE_ID, templateId, templateParams);
@@ -98,19 +67,20 @@ class EmailService {
     }
 
     /**
-     * ユーザー認証メールを送信
+     * ユーザー認証メールを送信 (トークン保存先: Firestore)
      */
-    sendVerificationEmail(toEmail) {
+    async sendVerificationEmail(toEmail) {
         const verificationToken = this.generateVerificationToken();
         const verificationLink = `${window.location.origin}${window.location.pathname}?token=${verificationToken}&email=${encodeURIComponent(toEmail)}`;
         
-        const tokens = JSON.parse(localStorage.getItem('verification_tokens') || '{}');
-        tokens[toEmail] = {
+        // ★Firestoreにトークンを保存 (Doc IDはメールアドレス)
+        // コレクション: verificationTokens
+        const tokenDocRef = doc(window.db, "verificationTokens", toEmail);
+        await setDoc(tokenDocRef, {
             token: verificationToken,
-            expiry: Date.now() + 24 * 60 * 60 * 1000 // 24時間有効
-        };
-        localStorage.setItem('verification_tokens', JSON.stringify(tokens));
-
+            expiry: Date.now() + 24 * 60 * 60 * 1000 
+        });
+        
         const params = {
             to_email: toEmail,
             verification_link: verificationLink
@@ -120,8 +90,6 @@ class EmailService {
 
     /**
      * 予約完了またはキャンセルメールを送信する統合メソッド
-     * @param {object} reservation - 予約データ
-     * @param {string} type - 'CONFIRM' または 'CANCEL'
      */
     sendReservationNotification(reservation, type) {
         let actionType;
@@ -141,8 +109,8 @@ class EmailService {
         const params = {
             to_email: reservation.email,
             student_id: reservation.studentId,
-            action_type: actionType, // Subject用: 予約完了 / 予約キャンセル
-            action_type_status: actionTypeStatus, // Content用: 完了 / キャンセル
+            action_type: actionType, 
+            action_type_status: actionTypeStatus,
             reservation_details: `
                 日付: ${reservation.date}
                 時間: ${reservation.startTime} から ${reservation.duration}分
@@ -154,109 +122,142 @@ class EmailService {
         return this.send(this.RESERVATION_NOTIFICATION_ID, params);
     }
 
-    // sendConfirmationEmail と sendCancellationEmail は削除または廃止
-
-    /**
-     * 認証トークンを生成
-     */
     generateVerificationToken() {
         return Math.random().toString(36).substring(2, 15) + 
                Math.random().toString(36).substring(2, 15);
     }
 
     /**
-     * 認証トークンを検証
+     * 認証トークンを検証 (Firestoreから読み込み/削除)
      */
-    verifyToken(email, token) {
-        const tokens = JSON.parse(localStorage.getItem('verification_tokens') || '{}');
-        const storedData = tokens[email];
+    async verifyToken(email, token) {
+        const tokenDocRef = doc(window.db, "verificationTokens", email);
+        const tokenDoc = await getDoc(tokenDocRef); 
+
+        if (!tokenDoc.exists()) {
+            return false;
+        }
         
-        if (!storedData) return false;
+        const storedData = tokenDoc.data();
+        
         if (storedData.token !== token) return false;
         if (Date.now() > storedData.expiry) return false;
         
-        delete tokens[email];
-        localStorage.setItem('verification_tokens', JSON.stringify(tokens));
+        // 認証成功したらトークンを削除
+        await deleteDoc(tokenDocRef);
         
         return true;
     }
 }
 
+
 /**
  * 認証コントローラー
- * ユーザー認証とセッション管理
  */
 class AuthenticationController {
-    constructor(storage, emailService) {
-        this.storage = storage;
+    constructor(emailService) { 
         this.emailService = emailService;
         this.currentUser = null;
-        this.users = this.storage.load('users', []);
     }
 
-    initialize() {
-        const savedUser = this.storage.load('currentUser');
+    // ★修正: FirestoreのDBオブジェクトがロードされるのを待ってから処理を開始
+    async initialize() {
+        // DBオブジェクトが初期化されるのを待つ (window.dbが存在するかチェック)
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // セッション情報はLocalStorageから取得
+        const savedUser = localStorage.getItem('currentUser');
         if (savedUser) {
-            this.currentUser = savedUser;
+            this.currentUser = JSON.parse(savedUser);
+            // ログイン状態であればUIを更新
             this.showLoggedInState();
         }
     }
 
-    // ======= handleLogin 置き換え =======
-    handleLogin(event) {
+    /**
+     * Firestoreからユーザーをメールアドレスで検索 (コレクション: users)
+     */
+    async getUserByEmail(email) {
+        // window.dbが確実に存在することを期待
+        const userDocRef = doc(window.db, "users", email); 
+        const userDoc = await getDoc(userDocRef);
+        
+        if (!userDoc.exists()) {
+            return null;
+        }
+        
+        const userData = userDoc.data();
+        userData.docId = userDoc.id; // ドキュメントID (この場合はメールアドレス)
+        return userData;
+    }
+
+    // ======= handleLogin (非同期化, Firestore対応) =======
+    async handleLogin(event) {
         event.preventDefault();
         const email = document.getElementById('email').value;
         const password = document.getElementById('password').value;
 
-        const user = this.users.find(u => u.email === email);
-
-        if (!user) {
-            NotificationService.show('メールアドレスまたはパスワードが正しくありません', 'error');
-            return;
-        }
-
-        // ハッシュ化されたパスワードと比較
-        if (user.password !== this.hashPassword(password)) {
-            NotificationService.show('メールアドレスまたはパスワードが正しくありません', 'error');
-            return;
-        }
-
-        if (!user.verified) {
-            NotificationService.show('メールアドレスが認証されていません。認証メール内のリンクをクリックしてください。', 'error');
-            // 再送信オプションを表示
-            if (confirm('認証メールを再送信しますか？')) {
-                this.resendVerificationEmail(email);
+        try {
+            // DBロード待機はinitializeで実施済みだが、念のためDBの存在を確認
+            if (typeof window.db === 'undefined') {
+                NotificationService.show('データベース接続が未完了です。時間をおいて再試行してください。', 'error');
+                return;
             }
-            return;
+            
+            const user = await this.getUserByEmail(email); 
+
+            if (!user) {
+                NotificationService.show('メールアドレスまたはパスワードが正しくありません', 'error');
+                return;
+            }
+
+            if (user.password !== this.hashPassword(password)) {
+                NotificationService.show('メールアドレスまたはパスワードが正しくありません', 'error');
+                return;
+            }
+
+            if (!user.verified) {
+                NotificationService.show('メールアドレスが認証されていません。', 'error');
+                if (confirm('認証メールを再送信しますか？')) {
+                    await this.resendVerificationEmail(email);
+                }
+                return;
+            }
+
+            // ログイン成功処理
+            const studentId = email.split('@')[0];
+            const collegeChar = studentId.charAt(4);
+            const userCollege = AppConfig.collegeMap[collegeChar];
+            const isAdmin = AppConfig.adminUsers.includes(email);
+
+            this.currentUser = {
+                email: email,
+                studentId: studentId,
+                college: collegeChar,
+                collegeName: userCollege ? userCollege.name : '不明',
+                isAdmin: isAdmin,
+                docId: user.docId
+            };
+
+            localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+            this.showLoggedInState();
+            NotificationService.show('ログインしました', 'success');
+        } catch (error) {
+            // Firestoreのエラー(権限、接続など)はここでキャッチされる
+            console.error("Login Error:", error);
+            NotificationService.show('ログイン処理中にエラーが発生しました。データベース接続を確認してください。', 'error');
         }
-
-        // ログイン成功処理
-        const studentId = email.split('@')[0];
-        const collegeChar = studentId.charAt(4);
-        const userCollege = AppConfig.collegeMap[collegeChar];
-        const isAdmin = AppConfig.adminUsers.includes(email);
-
-        this.currentUser = {
-            email: email,
-            studentId: studentId,
-            college: collegeChar,
-            collegeName: userCollege ? userCollege.name : '不明',
-            isAdmin: isAdmin,
-        };
-
-        this.storage.save('currentUser', this.currentUser);
-        this.showLoggedInState();
-        NotificationService.show('ログインしました', 'success');
     }
 
-    // ======= handleRegister 置き換え =======
+    // ======= handleRegister (非同期化, Firestore対応) =======
     async handleRegister(event) {
         event.preventDefault();
         const email = document.getElementById('regEmail').value;
         const password = document.getElementById('regPassword').value;
         const passwordConfirm = document.getElementById('regPasswordConfirm').value;
 
-        // バリデーション
         if (!AppConfig.emailConfig.pattern.test(email)) {
             NotificationService.show('学校指定のメールアドレス形式ではありません', 'error');
             return;
@@ -269,27 +270,27 @@ class AuthenticationController {
             NotificationService.show('パスワードが一致しません', 'error');
             return;
         }
-        if (this.users.some(u => u.email === email)) {
+
+        const existingUser = await this.getUserByEmail(email); 
+        if (existingUser) {
             NotificationService.show('このメールアドレスは既に使用されています', 'error');
             return;
         }
 
-        // ユーザーを仮登録
         const newUser = {
             email: email,
-            password: this.hashPassword(password), // パスワードをハッシュ化
+            password: this.hashPassword(password),
             verified: false,
             createdAt: new Date().toISOString()
         };
         
-        this.users.push(newUser);
-        this.storage.save('users', this.users);
-
-        // 認証メールを送信
+        const usersCol = collection(window.db, "users");
+        
         try {
+            await setDoc(doc(usersCol, email), newUser); 
+
             await this.emailService.sendVerificationEmail(email);
             
-            // 成功メッセージを表示
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('verificationMessage').classList.remove('hidden');
             document.getElementById('verificationMessage').innerHTML = `
@@ -304,44 +305,51 @@ class AuthenticationController {
                 </button>
             `;
         } catch (error) {
-            NotificationService.show('メール送信に失敗しました。時間をおいて再度お試しください。', 'error');
-            // エラーの場合は登録を取り消す
-            this.users = this.users.filter(u => u.email !== email);
-            this.storage.save('users', this.users);
+            console.error("Registration Error:", error);
+            NotificationService.show('登録処理中にエラーが発生しました。データベース接続を確認してください。', 'error');
+            await deleteDoc(doc(usersCol, email)).catch(e => console.error("Cleanup failed:", e));
         }
     }
 
-    // ======= 新規追加メソッド =======
-    /**
-     * URLパラメータから認証トークンを確認し、自動認証を行う
-     */
-    checkVerificationFromURL() {
+    // ======= checkVerificationFromURL (非同期化) =======
+    async checkVerificationFromURL() {
+        // DBロード待機
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
         const email = urlParams.get('email');
         
         if (token && email) {
-            this.verifyUserWithToken(email, token);
+            await this.verifyUserWithToken(email, token);
         }
     }
 
-    /**
-     * トークンを使用してユーザーを認証
-     */
-    verifyUserWithToken(email, token) {
-        if (this.emailService.verifyToken(email, token)) {
-            const user = this.users.find(u => u.email === email);
-            if (user) {
-                user.verified = true;
-                this.storage.save('users', this.users);
-                NotificationService.show('メールアドレスの認証が完了しました！ログインしてください。', 'success');
-                window.history.replaceState({}, document.title, window.location.pathname);
-                this.showLoginForm();
+    // ======= verifyUserWithToken (非同期化, Firestore対応) =======
+    async verifyUserWithToken(email, token) {
+        try {
+            const isVerified = await this.emailService.verifyToken(email, token);
+
+            if (isVerified) {
+                const user = await this.getUserByEmail(email); 
+                if (user) {
+                    const userDocRef = doc(window.db, "users", user.docId);
+                    await updateDoc(userDocRef, { verified: true });
+                    
+                    NotificationService.show('メールアドレスの認証が完了しました！ログインしてください。', 'success');
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    this.showLoginForm();
+                } else {
+                    NotificationService.show('ユーザーが見つかりません。新規登録してください。', 'error');
+                }
             } else {
-                NotificationService.show('ユーザーが見つかりません。新規登録してください。', 'error');
+                NotificationService.show('認証リンクが無効または期限切れです。', 'error');
             }
-        } else {
-            NotificationService.show('認証リンクが無効または期限切れです。', 'error');
+        } catch (error) {
+             console.error("Verification Error:", error);
+             NotificationService.show('認証中にエラーが発生しました。', 'error');
         }
     }
 
@@ -358,9 +366,6 @@ class AuthenticationController {
         return hash.toString();
     }
 
-    /**
-     * 認証メールの再送信
-     */
     async resendVerificationEmail(email) {
         try {
             await this.emailService.sendVerificationEmail(email);
@@ -370,15 +375,28 @@ class AuthenticationController {
         }
     }
 
-    // ======= verifyUser（デモ用）=======
-    verifyUser(email) {
-        const user = this.users.find(u => u.email === email);
-        if (user) {
-            user.verified = true;
-            this.storage.save('users', this.users);
-            NotificationService.show('メールアドレスが認証されました。ログインしてください。', 'success');
-            document.getElementById('verificationMessage').classList.add('hidden');
-            this.showLoginForm();
+    // ======= verifyUser（デモ用、Firestore対応）=======
+    async verifyUser(email) {
+        try {
+            // DBロード待機
+            while (typeof window.db === 'undefined') {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            const user = await this.getUserByEmail(email);
+            if (user) {
+                const userDocRef = doc(window.db, "users", user.docId);
+                await updateDoc(userDocRef, { verified: true });
+                
+                NotificationService.show('メールアドレスが認証されました。ログインしてください。', 'success');
+                document.getElementById('verificationMessage').classList.add('hidden');
+                this.showLoginForm();
+            } else {
+                NotificationService.show('デモ認証失敗: ユーザーが見つかりません。', 'error');
+            }
+        } catch (error) {
+            console.error("Demo Verification Error:", error);
+            NotificationService.show('デモ認証中にエラーが発生しました。', 'error');
         }
     }
 
@@ -393,7 +411,7 @@ class AuthenticationController {
 
     logout() {
         if (confirm('ログアウトしますか？')) {
-            this.storage.save('currentUser', null);
+            localStorage.removeItem('currentUser'); 
             this.currentUser = null;
             document.getElementById('header').classList.add('hidden');
             document.getElementById('email').value = '';
@@ -421,19 +439,43 @@ class AuthenticationController {
     
 }
 
+
 /**
  * 予約管理コントローラー
- * 予約の作成、更新、削除を管理
  */
 class ReservationManagementController {
-    constructor(storage, emailService) {
-        this.storage = storage;
+    constructor(emailService) { 
         this.emailService = emailService;
         this.reservations = [];
     }
 
-    initialize() {
-        this.loadReservations();
+    // ★★★ Firestoreから予約データを読み込む ★★★
+    async loadReservations() {
+        try {
+            // DBロード待機
+            while (typeof window.db === 'undefined') {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            const reservationsCol = collection(window.db, "reservations");
+            const reservationSnapshot = await getDocs(reservationsCol);
+            
+            this.reservations = reservationSnapshot.docs.map(doc => {
+                const data = doc.data();
+                data.docId = doc.id; 
+                data.id = data.id || doc.id;
+                return data;
+            });
+        } catch (error) {
+            console.error("Failed to load reservations:", error);
+            NotificationService.show('予約データのロードに失敗しました。データベース接続を確認してください。', 'error');
+            this.reservations = [];
+        }
+    }
+
+    async initialize() {
+        await this.loadReservations(); // ★予約データを非同期でロード
+        
         const dateInput = document.getElementById('reservationDate');
         if (dateInput && dateInput.value) {
             this.updateAvailability();
@@ -445,10 +487,8 @@ class ReservationManagementController {
         }
         this.setDateConstraints();
     }
-
-    loadReservations() {
-        this.reservations = this.storage.load('reservations', []);
-    }
+    
+    // ... (他のメソッドは Firestore対応のまま変更なし) ...
 
     setDateConstraints() {
         const dateInput = document.getElementById('reservationDate');
@@ -503,7 +543,6 @@ class ReservationManagementController {
             return;
         }
 
-        // Only render slots if they don't exist yet
         if (!timeSlotsContainer.querySelector('.time-slot')) {
              this.renderTimeSlots();
         }
@@ -607,7 +646,7 @@ class ReservationManagementController {
         const isOtherCollege = assignedBooth.college !== currentUser.college && assignedBooth.college !== 'common';
 
         this.pendingReservation = {
-            id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`, // 仮のID
             studentId: currentUser.studentId,
             email: currentUser.email,
             boothId: assignedBooth.id,
@@ -627,30 +666,40 @@ class ReservationManagementController {
         ModalController.showConfirmModal(this.pendingReservation);
     }
 
+    // ======= confirmReservation (Firestoreに保存) =======
     async confirmReservation() {
         if (!this.pendingReservation) return;
-
-        // ★統合したメール送信メソッドを使用
+        
+        const reservationsCol = collection(window.db, "reservations");
+        const newDocRef = doc(reservationsCol); 
+        
+        const reservationData = { 
+            ...this.pendingReservation,
+            id: newDocRef.id // Firestore IDを予約IDとして使用
+        };
+        
         try {
-            await this.emailService.sendReservationNotification(this.pendingReservation, 'CONFIRM');
-        } catch(error) {
-            // エラー通知をより明確にする
-            console.error("予約完了メール送信エラー:", error);
-            NotificationService.show('メール送信に失敗しました。予約は完了しています。EmailJSの設定を確認してください。', 'error');
-            // メール送信に失敗しても予約処理は続行
+            await setDoc(newDocRef, reservationData); // ★DB書き込み
+        } catch (e) {
+            console.error("Firestore Save Error:", e);
+            NotificationService.show('予約の保存に失敗しました。', 'error');
+            return;
         }
 
-        this.reservations.push(this.pendingReservation);
-        this.storage.save('reservations', this.reservations);
+        try {
+            await this.emailService.sendReservationNotification(reservationData, 'CONFIRM');
+        } catch(error) {
+            NotificationService.show('メール送信に失敗しました。予約は完了しています。', 'error');
+        }
 
-        if (this.pendingReservation.isOtherCollege) {
-            console.log(`Slack通知送信: ${this.pendingReservation.email}が${this.pendingReservation.assignedCollegeName}のブースを予約しました。`);
+        if (reservationData.isOtherCollege) {
+            console.log(`Slack通知送信: ${reservationData.email}が${reservationData.assignedCollegeName}のブースを予約しました。`);
         }
 
         ModalController.closeModal('confirmModal');
         NotificationService.show('予約が完了しました', 'success');
         this.resetReservationForm();
-        this.initialize();
+        await this.initialize(); 
     }
 
     resetReservationForm() {
@@ -662,11 +711,14 @@ class ReservationManagementController {
         this.pendingReservation = null;
     }
 
-    loadUserReservations() {
+    // ======= loadUserReservations (Firestoreから読み込み) =======
+    async loadUserReservations() {
         const container = document.getElementById('userReservations');
         const currentUser = AuthController.getCurrentUser();
         if (!container || !currentUser) return;
-
+        
+        await this.loadReservations(); 
+        
         const userReservations = this.reservations
             .filter(r => r.email === currentUser.email)
             .sort((a, b) => new Date(`${a.date}T${a.startTime}`) - new Date(`${b.date}T${b.startTime}`));
@@ -675,7 +727,7 @@ class ReservationManagementController {
             container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">予約はありません</p>';
             return;
         }
-
+        
         container.innerHTML = userReservations.map(res => {
             const isPast = new Date(`${res.date}T${res.startTime}`) < new Date();
             return `
@@ -692,26 +744,31 @@ class ReservationManagementController {
         }).join('');
     }
 
+    // ======= cancelReservation (Firestoreから削除) =======
     async cancelReservation(reservationId) {
         if (!confirm('本当にこの予約をキャンセルしますか？')) return;
-        const index = this.reservations.findIndex(r => r.id === reservationId);
-        if (index === -1) return;
         
-        const canceled = this.reservations[index]; // キャンセルされた予約オブジェクトを取得
-
-        // ★統合したメール送信メソッドを使用
+        await this.loadReservations(); 
+        const canceled = this.reservations.find(r => r.id === reservationId);
+        if (!canceled) return;
+        
+        const reservationDocRef = doc(window.db, "reservations", canceled.docId);
         try {
-            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // 取得したオブジェクトと 'CANCEL' を渡す
-        } catch(error) {
-            // エラー通知をより明確にする
-            console.error("予約キャンセルメール送信エラー:", error);
-            NotificationService.show('キャンセルメールの送信に失敗しました。EmailJSの設定を確認してください。', 'error');
+            await deleteDoc(reservationDocRef);
+        } catch (e) {
+            console.error("Firestore Delete Error:", e);
+            NotificationService.show('予約のキャンセルに失敗しました。', 'error');
+            return;
         }
 
-        this.reservations.splice(index, 1);
-        this.storage.save('reservations', this.reservations);
+        try {
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL');
+        } catch(error) {
+            NotificationService.show('キャンセルメールの送信に失敗しました。', 'error');
+        }
+
         NotificationService.show('予約をキャンセルしました', 'success');
-        this.loadUserReservations();
+        await this.loadUserReservations(); 
     }
 }
 
@@ -719,12 +776,55 @@ class ReservationManagementController {
  * 管理者コントローラー
  */
 class AdminController {
-    constructor(storage, emailService) {
-        this.storage = storage;
-        this.emailService = emailService; // ★EmailServiceを受け取る
+    constructor(emailService) { 
+        this.emailService = emailService;
+        this.reservations = []; 
+        this.users = []; 
+    }
+    
+    async getAllReservations() {
+        // DBロード待機
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        try {
+            const reservationsCol = collection(window.db, "reservations");
+            const reservationSnapshot = await getDocs(reservationsCol);
+            
+            return reservationSnapshot.docs.map(doc => {
+                const data = doc.data();
+                data.docId = doc.id; 
+                data.id = data.id || doc.id;
+                return data;
+            });
+        } catch (e) {
+            console.error("Admin Load Reservations Error:", e);
+            return [];
+        }
+    }
+    
+    async getAllUsers() {
+        // DBロード待機
+        while (typeof window.db === 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        try {
+            const usersCol = collection(window.db, "users");
+            const userSnapshot = await getDocs(usersCol);
+            
+            return userSnapshot.docs.map(doc => doc.data());
+        } catch (e) {
+            console.error("Admin Load Users Error:", e);
+            return [];
+        }
     }
 
-    loadAdminData() {
+    async loadAdminData() {
+        this.reservations = await this.getAllReservations(); 
+        this.users = await this.getAllUsers();
+        
         this.updateStatistics();
         this.loadAllReservations();
         this.populateBoothSelector();
@@ -737,15 +837,13 @@ class AdminController {
     }
     
     updateStatistics() {
-        const reservations = this.storage.load('reservations', []);
-        const users = this.storage.load('users', []);
         const today = new Date().toISOString().split('T')[0];
         
-        document.getElementById('totalReservations').textContent = reservations.filter(r => r.date === today).length;
-        document.getElementById('totalUsers').textContent = users.length;
+        document.getElementById('totalReservations').textContent = this.reservations.filter(r => r.date === today).length;
+        document.getElementById('totalUsers').textContent = this.users.length;
         
         const totalSlots = AppConfig.booths.length * (AppConfig.businessHours.end - AppConfig.businessHours.start) * (60 / AppConfig.businessHours.slotDuration);
-        const bookedSlots = reservations.filter(r => r.date === today).reduce((sum, r) => sum + (r.duration / AppConfig.businessHours.slotDuration), 0);
+        const bookedSlots = this.reservations.filter(r => r.date === today).reduce((sum, r) => sum + (r.duration / AppConfig.businessHours.slotDuration), 0);
         document.getElementById('utilizationRate').textContent = `${totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) : 0}%`;
     }
 
@@ -753,7 +851,7 @@ class AdminController {
         const emailFilter = document.getElementById('emailFilter')?.value.toLowerCase() || '';
         const dateFilter = document.getElementById('dateFilter')?.value || '';
 
-        let reservations = this.storage.load('reservations', []);
+        let reservations = this.reservations;
         
         if (emailFilter) {
             reservations = reservations.filter(r => r.email.toLowerCase().includes(emailFilter));
@@ -800,8 +898,7 @@ class AdminController {
     }
 
     openEditModal(reservationId) {
-        const reservations = this.storage.load('reservations', []);
-        const reservation = reservations.find(r => r.id === reservationId);
+        const reservation = this.reservations.find(r => r.id === reservationId);
         if (!reservation) return;
 
         document.getElementById('adminReservationId').value = reservation.id;
@@ -815,11 +912,10 @@ class AdminController {
         ModalController.openModal('adminAddEditModal');
     }
 
+    // ======= saveReservation (Firestoreに保存/更新) =======
     async saveReservation(event) {
         event.preventDefault();
-        let reservations = this.storage.load('reservations', []);
-        const users = this.storage.load('users', []);
-
+        
         const id = document.getElementById('adminReservationId').value;
         const email = document.getElementById('adminStudentEmail').value;
         const date = document.getElementById('adminDate').value;
@@ -828,7 +924,8 @@ class AdminController {
         const boothId = parseInt(document.getElementById('adminBoothId').value);
         const purpose = document.getElementById('adminPurpose').value;
 
-        if (!users.some(u => u.email === email)) {
+        const user = await AuthController.getUserByEmail(email);
+        if (!user) {
             NotificationService.show('指定されたメールアドレスのユーザーは存在しません', 'error');
             return;
         }
@@ -838,60 +935,69 @@ class AdminController {
         const collegeChar = studentId.charAt(4);
         const collegeName = AppConfig.collegeMap[collegeChar]?.name || '不明';
 
-        const reservationData = {
+        let reservationData = {
             email, studentId, date, startTime, duration, boothId, purpose,
             boothName: booth.name,
             collegeName: collegeName,
             assignedCollegeName: booth.collegeName,
-            createdAt: new Date().toISOString()
         };
         
-        const isNewReservation = !id;
-        if (id) {
-            const index = reservations.findIndex(r => r.id === id);
-            if (index !== -1) {
-                reservations[index] = { ...reservations[index], ...reservationData };
-            }
-        } else {
-            const newReservation = {
-                ...reservationData,
-                id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            };
-            reservations.push(newReservation);
-            
-            // ★新規作成時のみメール送信
-            try {
-                await this.emailService.sendReservationNotification(newReservation, 'CONFIRM');
-            } catch(e) {
-                // エラー通知をより明確にする
-                console.error("管理者による新規予約メール送信エラー:", e);
-                NotificationService.show('メール送信に失敗しました。予約は完了しています。EmailJSの設定を確認してください。', 'error');
-            }
-        }
+        const reservationsCol = collection(window.db, "reservations");
         
-        this.storage.save('reservations', reservations);
-        NotificationService.show('予約情報を保存しました', 'success');
+        try {
+            if (id) {
+                // 更新
+                const existingRes = this.reservations.find(r => r.id === id);
+                if (!existingRes) throw new Error("Reservation not found in list.");
+                
+                // 更新時は既存のcreatedAtとdocIdを使う
+                const docRef = doc(reservationsCol, existingRes.docId); 
+                reservationData = { ...existingRes, ...reservationData };
+                
+                await updateDoc(docRef, reservationData);
+                NotificationService.show('予約情報を更新しました', 'success');
+            } else {
+                // 新規作成
+                const newDocRef = doc(reservationsCol);
+                const newReservation = {
+                    ...reservationData,
+                    id: newDocRef.id,
+                    createdAt: new Date().toISOString()
+                };
+                await setDoc(newDocRef, newReservation);
+                
+                await this.emailService.sendReservationNotification(newReservation, 'CONFIRM');
+                NotificationService.show('予約情報を保存しました', 'success');
+            }
+        } catch(e) {
+            console.error("Admin Save Error:", e);
+            NotificationService.show('管理予約の保存/更新に失敗しました。', 'error');
+            return;
+        }
+
         ModalController.closeModal('adminAddEditModal');
         this.loadAdminData();
     }
 
+    // ======= adminCancelReservation (Firestoreから削除) =======
     async adminCancelReservation(reservationId) {
         if (!confirm('この予約を削除してもよろしいですか？')) return;
-        let reservations = this.storage.load('reservations', []);
-        const canceled = reservations.find(r => r.id === reservationId); // キャンセルされた予約オブジェクトを取得
+        
+        this.reservations = await this.getAllReservations();
+        const canceled = this.reservations.find(r => r.id === reservationId);
         if (!canceled) return;
         
+        const reservationDocRef = doc(window.db, "reservations", canceled.docId);
+        
         try {
-            // ★統合したメール送信メソッドを使用
-            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); // 取得したオブジェクトと 'CANCEL' を渡す
+            await deleteDoc(reservationDocRef);
+            await this.emailService.sendReservationNotification(canceled, 'CANCEL'); 
         } catch(e) {
-            // エラー通知をより明確にする
-            console.error("管理者による予約キャンセルメール送信エラー:", e);
-            NotificationService.show('キャンセルメールの送信に失敗しました。EmailJSの設定を確認してください。', 'error');
+            console.error("Admin Cancel Error:", e);
+            NotificationService.show('管理予約の削除/キャンセルメール送信に失敗しました。', 'error');
+            return;
         }
-
-        reservations = reservations.filter(r => r.id !== reservationId);
-        this.storage.save('reservations', reservations);
+        
         NotificationService.show('予約を削除しました', 'success');
         this.loadAdminData();
     }
@@ -940,7 +1046,7 @@ const ModalController = {
         details.innerHTML = `
             <p><strong>日付:</strong> ${reservation.date}</p>
             <p><strong>時間:</strong> ${reservation.startTime} から ${reservation.duration}分</p>
-            <p><strong>割り当てブース:</strong> ${reservation.boothName} (${reservation.assignedCollegeName})</p>
+            <p><strong>割り当てブース:s</strong> ${reservation.boothName} (${reservation.assignedCollegeName})</p>
             ${reservation.isOtherCollege ? `<div class="alert alert-info" style="margin-top: 1rem;">注意: 他カレッジのブースが割り当てられました。担当者に通知が送信されます。</div>` : ''}
         `;
         this.openModal('confirmModal');
@@ -977,20 +1083,21 @@ const NotificationService = {
  * アプリケーション初期化
  */
 const initializeApp = () => {
-    const storage = new DataStorage();
     const emailService = new EmailService();
     
-    window.AuthController = new AuthenticationController(storage, emailService);
-    window.ReservationController = new ReservationManagementController(storage, emailService);
-    window.AdminControllerInstance = new AdminController(storage, emailService);
+    window.AuthController = new AuthenticationController(emailService);
+    window.ReservationController = new ReservationManagementController(emailService);
+    window.AdminControllerInstance = new AdminController(emailService);
 
     window.NavigationController = NavigationController;
     window.ModalController = ModalController;
     window.NotificationService = NotificationService;
     
+    // AuthControllerは非同期処理を待たずに実行し、セッションがあればログイン状態にする
+    // initialize() 自体が非同期になり、DBロード完了を待つように変更
     AuthController.initialize();
 
-    // ★新規追加：URLパラメータから認証トークンをチェック
+    // URLからの認証トークンをチェック (これも非同期)
     AuthController.checkVerificationFromURL();
 
     window.onclick = (event) => {
@@ -998,7 +1105,23 @@ const initializeApp = () => {
             event.target.style.display = 'none';
         }
     };
+    
+    // ★デモ認証ボタンにイベントリスナーを追加 (Firestore対応)
+    document.addEventListener('DOMContentLoaded', () => {
+        const verifyButton = document.getElementById('verifyButton');
+        const regEmailInput = document.getElementById('regEmail');
+        
+        if (verifyButton && regEmailInput) {
+             verifyButton.addEventListener('click', () => {
+                const email = regEmailInput.value || 'test@g.neec.ac.jp'; 
+                AuthController.verifyUser(email);
+            });
+        }
+    });
 };
 
 
-document.addEventListener('DOMContentLoaded', initializeApp);
+// DOMContentLoadedではなく、Firebaseのモジュールロード後に実行されることが望ましい
+// index.htmlで app.js の読み込み順序を調整したため、ここで直接initializeAppを呼び出す
+// document.addEventListener('DOMContentLoaded', initializeApp);
+initializeApp();
