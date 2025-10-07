@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>日本工学院蒲田校 面接ブース予約システム v2.1</title>
+    <title>日本工学院蒲田校 面接ブース予約システム v2.2</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -69,17 +69,15 @@
                                 <label for="regPasswordConfirm">パスワード（確認）</label>
                                 <input type="password" id="regPasswordConfirm" required>
                             </div>
-                            <button type="submit" class="btn btn-primary" style="width: 100%">登録</button>
+                            <button type="submit" class="btn btn-primary" style="width: 100%">登録して認証メールを送信</button>
                         </form>
                         <div style="text-align: center; margin-top: 1rem;">
                             <a href="#" onclick="AuthController.showLoginForm()" style="color: var(--primary-color);">ログインに戻る</a>
                         </div>
                     </div>
-
-                    <div id="verificationMessage" class="hidden" style="margin-top: 1.5rem; text-align: center;">
-                        <div class="alert alert-info">認証メールを送信しました。</div>
-                        <p>デモのため、以下のボタンで認証を完了できます。</p>
-                        <button class="btn btn-success" id="verifyButton" style="background-color: var(--success-color);">今すぐ認証する</button>
+                    
+                    <div id="verificationMessage" class="hidden alert alert-info" style="margin-top: 1.5rem; text-align: center;">
+                        認証メールを送信しました。メールボックスを確認し、記載されたリンクをクリックして登録を完了してください。
                     </div>
 
                 </div>
@@ -270,34 +268,38 @@
         </div>
     </div>
 
-    <!-- EmailJS SDK を読み込む -->
+    <!-- EmailJS SDK -->
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     
-    <!-- ★★★ Firebase SDK の追加と初期化 ★★★ -->
+    <!-- ★★★ Firebase SDK の追加と初期化 (Authモジュール追加) ★★★ -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+        import { 
+            getAuth, onAuthStateChanged, createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword, signOut, sendEmailVerification 
+        } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
         import { 
             getFirestore, collection, getDocs, doc, setDoc, query, where, updateDoc, deleteDoc,
             getDoc 
         } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
         
-        // 1. Firebase Configの定義 (★提供いただいた実際の値に置き換え済み★)
+        // 1. Firebase Configの定義
         const firebaseConfig = {
-            apiKey: "AIzaSyCncQkyA2vMDfGgYaqfp4dNEOpNd2e4kTc",
+            apiKey: "AIzaSyCncQkyA2vMDfGgYaqfp4dNEOpNd2e4kTc", // ご自身のAPIキーに置き換えてください
             authDomain: "k-hommapj.firebaseapp.com",
             projectId: "k-hommapj",
-            storageBucket: "k-hommapj.firebasestorage.app",
+            storageBucket: "k-hommapj.appspot.com", // .firebasestorage.app から変更
             messagingSenderId: "548197666135",
             appId: "1:548197666135:web:bfdc4880c69722f18a0212",
-            // measurementId: "G-Q4EW1ETY9C" // measurementIdは不要なため削除
         };
 
         // 2. Firebaseの初期化とグローバル変数化
         window.firebaseApp = initializeApp(firebaseConfig);
         window.db = getFirestore(window.firebaseApp);
+        window.auth = getAuth(window.firebaseApp); // ★ Authの初期化
         
-        // 3. Firestoreの主要な関数をグローバルに定義 (app.jsからアクセスするため)
+        // 3. Firestore & Auth の主要な関数をグローバルに定義 (app.jsからアクセスするため)
         window.collection = collection;
         window.getDocs = getDocs;
         window.doc = doc;
@@ -307,8 +309,15 @@
         window.updateDoc = updateDoc;
         window.deleteDoc = deleteDoc;
         window.getDoc = getDoc; 
+        
+        // ★ Auth関連の関数をグローバル化
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
+        window.signInWithEmailAndPassword = signInWithEmailAndPassword;
+        window.signOut = signOut;
+        window.sendEmailVerification = sendEmailVerification;
     </script>
-    <!-- app.js の読み込み（二重読み込みを解消し、Firebase初期化後に実行） -->
+    <!-- app.js の読み込み -->
     <script src="app.js"></script>
 </body>
 </html>
